@@ -1,0 +1,22 @@
+{
+  "expo": {
+    "name": "Shramik Pay",
+    "slug": "owner-labour-salary-tracker",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.shramik.salarytracker"
+    },
+    "android": {
+      "package": "com.shramik.salarytracker",
+      "adaptiveIcon": {
+        "backgroundColor": "#0f172a"
+      }
+    },
+    "plugins": [
+      "expo-asset"
+    ]
+  }
+}

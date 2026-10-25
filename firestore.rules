@@ -1,0 +1,758 @@
+rules_version = '2';
+
+// ===============================================================
+// Assumed Data Model & Schema Definitions
+// ===============================================================
+//
+// Application: Owner & Labour Salary Tracking App
+//
+// 1. Collection: profiles/{userId}
+//    Document ID: Firebase Auth UID
+//    Fields:
+//      - id: string (required, 1-128 chars, matches document ID)
+//      - role: string (required, 'owner' | 'worker' | 'admin')
+//      - fullName: string (required, 1-100 chars)
+//      - phone: string (required, 7-20 chars)
+//      - languagePref: string (required, 'en' | 'hi' | 'mr')
+//      - avatarUrl: string (optional, 1-500 chars)
+//      - businessName: string (optional, 1-150 chars)
+//      - createdAt: string or timestamp (required, immutable)
+//
+// 2. Collection: workers/{workerId}
+//    Document ID: Worker ID string (e.g. 'worker-manoj-101')
+//    Fields:
+//      - id: string (required, matches document ID, immutable)
+//      - ownerId: string (required, Firebase Auth UID of business owner, immutable)
+//      - userId: string (optional, linked worker Firebase Auth UID)
+//      - employeeCode: string (required, 1-50 chars)
+//      - fullName: string (required, 1-100 chars)
+//      - phone: string (required, 7-20 chars)
+//      - jobRole: string (required, 1-100 chars)
+//      - joiningDate: string (required, 10 chars, YYYY-MM-DD)
+//      - wageType: string (required, 'monthly' | 'daily')
+//      - baseRate: number (required, >= 0)
+//      - paymentCycle: string (required, 'monthly' | 'weekly' | 'biweekly' | 'daily')
+//      - monthlyDivisor: number (required, 0-31)
+//      - weeklyOffDay: number (required, 0-6)
+//      - paidLeaveAllowance: number (required, 0-31)
+//      - advanceLimit: number (required, >= 0)
+//      - isActive: bool (required)
+//      - isOldWorker: bool (optional)
+//      - openingSalaryBalance: number (optional)
+//      - openingAdvanceBalance: number (optional)
+//      - openingBalanceNotes: string (optional, 1-500 chars)
+//      - wageRevisions: list of maps (optional, <= 100 items)
+//      - isLeftJob: bool (optional)
+//      - leavingDate: string (optional, 1-30 chars)
+//      - leavingReason: string (optional, 1-500 chars)
+//      - salaryCycleRule: string (optional, 'joining_day_repeat' | 'calendar_month')
+//      - customAnchorDay: number (optional, 1-31)
+//      - pinHash: string (optional, 1-128 chars)
+//      - createdAt: string or timestamp (required, immutable)
+//      - updatedAt: string or timestamp (required)
+//
+// 3. Collection: attendance/{attendanceId}
+//    Document ID: Attendance Record ID (e.g. 'att-m-01')
+//    Fields:
+//      - id: string (required, matches document ID, immutable)
+//      - workerId: string (required, 1-128 chars, immutable)
+//      - date: string (required, 10 chars, YYYY-MM-DD)
+//      - status: string (required, 'present' | 'absent' | 'half_day' | 'paid_leave' | 'weekly_off' | 'holiday')
+//      - deductionAmount: number (required, >= 0)
+//      - earningsAmount: number (required, >= 0)
+//      - note: string (optional, 1-500 chars)
+//      - correctionReason: string (optional, 1-500 chars)
+//      - recordedBy: string (required, 1-128 chars)
+//      - ownerId: string (optional, 1-128 chars)
+//      - createdAt: string or timestamp (required, immutable)
+//      - updatedAt: string or timestamp (required)
+//
+// 4. Collection: advanceRequests/{requestId}
+//    Document ID: Request ID (e.g. 'req-01')
+//    Fields:
+//      - id: string (required, matches document ID, immutable)
+//      - workerId: string (required, 1-128 chars, immutable)
+//      - amount: number (required, > 0)
+//      - category: string (required, 'juice_shop' | 'food' | 'travel' | 'medical' | 'family' | 'other')
+//      - reason: string (required, 1-500 chars, immutable)
+//      - status: string (required, 'pending' | 'approved' | 'rejected' | 'paid')
+//      - rejectionReason: string (optional, 1-500 chars)
+//      - reviewedBy: string (optional, 1-128 chars)
+//      - reviewedAt: string (optional, 10-40 chars)
+//      - ownerId: string (optional, 1-128 chars)
+//      - createdAt: string or timestamp (required, immutable)
+//
+// 5. Collection: disbursements/{disbursementId}
+//    Document ID: Disbursement ID (e.g. 'disb-01')
+//    Fields:
+//      - id: string (required, matches document ID, immutable)
+//      - workerId: string (required, 1-128 chars, immutable)
+//      - advanceRequestId: string (optional, 1-128 chars)
+//      - amount: number (required, > 0)
+//      - disbursementDate: string (required, 10-40 chars)
+//      - paymentMode: string (required, 'cash' | 'upi' | 'bank_transfer' | 'cheque')
+//      - disbursementType: string (required, 'advance' | 'shop_debit' | 'salary_installment' | 'expense_reimbursement' | 'non_recoverable')
+//      - isRecoverable: bool (required)
+//      - isSettled: bool (required)
+//      - note: string (optional, 1-500 chars)
+//      - createdBy: string (required, 1-128 chars)
+//      - ownerId: string (optional, 1-128 chars)
+//      - createdAt: string or timestamp (required, immutable)
+//
+// 6. Collection: deductions/{deductionId}
+//    Document ID: Deduction ID (e.g. 'ded-01')
+//    Fields:
+//      - id: string (required, matches document ID, immutable)
+//      - workerId: string (required, 1-128 chars, immutable)
+//      - salaryPeriodId: string (optional, 1-128 chars)
+//      - disbursementId: string (optional, 1-128 chars)
+//      - category: string (required, 'absence' | 'shop_debit' | 'advance_recovery' | 'damage_recovery' | 'loan_repayment' | 'other')
+//      - amount: number (required, > 0)
+//      - calculationBreakdown: string (required, 1-500 chars)
+//      - reason: string (required, 1-500 chars)
+//      - deductionDate: string (required, 10 chars, YYYY-MM-DD)
+//      - createdBy: string (required, 1-128 chars)
+//      - ownerId: string (optional, 1-128 chars)
+//      - createdAt: string or timestamp (required, immutable)
+//
+// 7. Collection: salaryPayments/{paymentId}
+//    Document ID: Payment ID (e.g. 'pay-m-01')
+//    Fields:
+//      - id: string (required, matches document ID, immutable)
+//      - salaryPeriodId: string (required, 1-128 chars)
+//      - workerId: string (required, 1-128 chars, immutable)
+//      - amount: number (required, > 0)
+//      - paymentMode: string (required, 'cash' | 'upi' | 'bank_transfer' | 'cheque')
+//      - referenceNumber: string (optional, 1-100 chars)
+//      - paymentDate: string (required, 10-40 chars)
+//      - receiptNumber: string (required, 1-100 chars)
+//      - note: string (optional, 1-500 chars)
+//      - createdBy: string (required, 1-128 chars)
+//      - ownerId: string (optional, 1-128 chars)
+//      - createdAt: string or timestamp (required, immutable)
+//
+// 8. Collection: disputes/{disputeId}
+//    Document ID: Dispute ID (e.g. 'disp-01')
+//    Fields:
+//      - id: string (required, matches document ID, immutable)
+//      - workerId: string (required, 1-128 chars, immutable)
+//      - referenceType: string (required, 'attendance' | 'deduction' | 'advance' | 'salary' | 'shop_debit')
+//      - referenceId: string (optional, 1-128 chars)
+//      - subject: string (required, 1-200 chars)
+//      - description: string (required, 1-2000 chars)
+//      - status: string (required, 'open' | 'resolved' | 'dismissed')
+//      - ownerReply: string (optional, 1-2000 chars)
+//      - resolvedAt: string (optional, 10-40 chars)
+//      - ownerId: string (optional, 1-128 chars)
+//      - createdAt: string or timestamp (required, immutable)
+//
+// 9. Collection: backups/{backupId}
+//    Document ID: Backup ID (e.g. 'backup-1718000000000')
+//    Fields:
+//      - id: string (required, matches document ID, immutable)
+//      - ownerId: string (required, owner UID, immutable)
+//      - createdAt: string or timestamp (required, immutable)
+//      - note: string (optional, 1-500 chars)
+//      - appVersion: string (required, 1-50 chars)
+//      - stats: map (required)
+//      - data: map (required)
+//
+// 10. Collection: notifications/{notificationId}
+//     Document ID: Notification ID
+//     Fields:
+//       - id: string (required, matches document ID, immutable)
+//       - userId: string (required, recipient UID, immutable)
+//       - title: string (required, 1-200 chars)
+//       - body: string (required, 1-1000 chars)
+//       - type: string (required, 1-50 chars)
+//       - payload: map (optional)
+//       - isRead: bool (required)
+//       - createdAt: string or timestamp (required, immutable)
+//
+// ===============================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Global Helper Functions
+    // ===============================================================
+
+    // Check if the request is from an authenticated user
+    function isAuthenticated() {
+      return request.auth != null && request.auth.uid != null;
+    }
+
+    // Check if the caller matches a specific UID
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Check if caller is registered as an app owner or admin
+    function isAppOwner() {
+      return isAuthenticated() && (
+        request.auth.token.get('role', '') == 'owner' ||
+        request.auth.token.get('role', '') == 'admin' ||
+        (
+          exists(/databases/$(database)/documents/profiles/$(request.auth.uid)) &&
+          get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.get('role', '') in ['owner', 'admin']
+        )
+      );
+    }
+
+    // Check if caller is the business owner managing this worker
+    function isWorkerOwner(workerId) {
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/workers/$(workerId)) &&
+        get(/databases/$(database)/documents/workers/$(workerId)).data.get('ownerId', '') == request.auth.uid;
+    }
+
+    // Check if caller is the linked worker for a given workerId
+    function isLinkedWorker(workerId) {
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/workers/$(workerId)) &&
+        'userId' in get(/databases/$(database)/documents/workers/$(workerId)).data &&
+        get(/databases/$(database)/documents/workers/$(workerId)).data.userId == request.auth.uid;
+    }
+
+    // Validate valid timestamp or ISO string representation
+    function isValidTimestampField(val) {
+      return val is timestamp || (val is string && val.size() >= 10 && val.size() <= 40);
+    }
+
+    // Validate standard date string (YYYY-MM-DD)
+    function isValidDateString(val) {
+      return val is string && val.size() == 10 && val.matches('^\\d{4}-\\d{2}-\\d{2}$');
+    }
+
+    // Helper for optional string field validation
+    function isOptionalString(data, field, minLen, maxLen) {
+      return !(field in data) || (data[field] is string && data[field].size() >= minLen && data[field].size() <= maxLen);
+    }
+
+    // Helper for optional numeric field validation
+    function isOptionalNumber(data, field, minVal, maxVal) {
+      return !(field in data) || (data[field] is number && data[field] >= minVal && data[field] <= maxVal);
+    }
+
+    // Helper for optional boolean field validation
+    function isOptionalBool(data, field) {
+      return !(field in data) || (data[field] is bool);
+    }
+
+    // ===============================================================
+    // Domain Validator: profiles
+    // ===============================================================
+    function isValidProfile(data) {
+      return data.keys().hasOnly(['id', 'role', 'fullName', 'phone', 'languagePref', 'avatarUrl', 'businessName', 'createdAt']) &&
+        data.keys().hasAll(['id', 'role', 'fullName', 'phone', 'languagePref', 'createdAt']) &&
+        data.id is string && data.id.size() >= 1 && data.id.size() <= 128 &&
+        data.role is string && data.role in ['owner', 'worker', 'admin'] &&
+        data.fullName is string && data.fullName.size() >= 1 && data.fullName.size() <= 100 &&
+        data.phone is string && data.phone.size() >= 7 && data.phone.size() <= 20 &&
+        data.languagePref is string && data.languagePref in ['en', 'hi', 'mr'] &&
+        isValidTimestampField(data.createdAt) &&
+        isOptionalString(data, 'avatarUrl', 1, 500) &&
+        isOptionalString(data, 'businessName', 1, 150);
+    }
+
+    // ===============================================================
+    // Domain Validator: workers
+    // ===============================================================
+    function isValidWorker(data) {
+      return data.keys().hasOnly([
+          'id', 'ownerId', 'userId', 'employeeCode', 'fullName', 'phone',
+          'jobRole', 'joiningDate', 'isOldWorker', 'openingSalaryBalance',
+          'openingAdvanceBalance', 'openingBalanceNotes', 'wageType', 'baseRate',
+          'wageRevisions', 'isLeftJob', 'leavingDate', 'leavingReason',
+          'paymentCycle', 'salaryCycleRule', 'customAnchorDay', 'monthlyDivisor',
+          'weeklyOffDay', 'paidLeaveAllowance', 'advanceLimit', 'pinHash',
+          'isActive', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasAll([
+          'id', 'ownerId', 'employeeCode', 'fullName', 'phone', 'jobRole',
+          'joiningDate', 'wageType', 'baseRate', 'paymentCycle', 'monthlyDivisor',
+          'weeklyOffDay', 'paidLeaveAllowance', 'advanceLimit', 'isActive',
+          'createdAt', 'updatedAt'
+        ]) &&
+        data.id is string && data.id.size() >= 1 && data.id.size() <= 128 &&
+        data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 &&
+        data.employeeCode is string && data.employeeCode.size() >= 1 && data.employeeCode.size() <= 50 &&
+        data.fullName is string && data.fullName.size() >= 1 && data.fullName.size() <= 100 &&
+        data.phone is string && data.phone.size() >= 7 && data.phone.size() <= 20 &&
+        data.jobRole is string && data.jobRole.size() >= 1 && data.jobRole.size() <= 100 &&
+        isValidDateString(data.joiningDate) &&
+        data.wageType is string && data.wageType in ['monthly', 'daily'] &&
+        data.baseRate is number && data.baseRate >= 0 && data.baseRate <= 10000000 &&
+        data.paymentCycle is string && data.paymentCycle in ['monthly', 'weekly', 'biweekly', 'daily'] &&
+        data.monthlyDivisor is number && data.monthlyDivisor >= 0 && data.monthlyDivisor <= 31 &&
+        data.weeklyOffDay is number && data.weeklyOffDay >= 0 && data.weeklyOffDay <= 6 &&
+        data.paidLeaveAllowance is number && data.paidLeaveAllowance >= 0 && data.paidLeaveAllowance <= 31 &&
+        data.advanceLimit is number && data.advanceLimit >= 0 && data.advanceLimit <= 10000000 &&
+        data.isActive is bool &&
+        isValidTimestampField(data.createdAt) &&
+        isValidTimestampField(data.updatedAt) &&
+        isOptionalString(data, 'userId', 1, 128) &&
+        isOptionalBool(data, 'isOldWorker') &&
+        isOptionalNumber(data, 'openingSalaryBalance', -10000000, 10000000) &&
+        isOptionalNumber(data, 'openingAdvanceBalance', -10000000, 10000000) &&
+        isOptionalString(data, 'openingBalanceNotes', 1, 500) &&
+        (!( 'wageRevisions' in data ) || ( data.wageRevisions is list && data.wageRevisions.size() <= 100 )) &&
+        isOptionalBool(data, 'isLeftJob') &&
+        isOptionalString(data, 'leavingDate', 1, 30) &&
+        isOptionalString(data, 'leavingReason', 1, 500) &&
+        (!( 'salaryCycleRule' in data ) || ( data.salaryCycleRule is string && data.salaryCycleRule in ['joining_day_repeat', 'calendar_month'] )) &&
+        isOptionalNumber(data, 'customAnchorDay', 1, 31) &&
+        isOptionalString(data, 'pinHash', 1, 128);
+    }
+
+    // ===============================================================
+    // Domain Validator: attendance
+    // ===============================================================
+    function isValidAttendance(data) {
+      return data.keys().hasOnly([
+          'id', 'workerId', 'date', 'status', 'deductionAmount',
+          'earningsAmount', 'note', 'correctionReason', 'recordedBy',
+          'ownerId', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasAll([
+          'id', 'workerId', 'date', 'status', 'deductionAmount',
+          'earningsAmount', 'recordedBy', 'createdAt', 'updatedAt'
+        ]) &&
+        data.id is string && data.id.size() >= 1 && data.id.size() <= 128 &&
+        data.workerId is string && data.workerId.size() >= 1 && data.workerId.size() <= 128 &&
+        isValidDateString(data.date) &&
+        data.status is string && data.status in ['present', 'absent', 'half_day', 'paid_leave', 'weekly_off', 'holiday'] &&
+        data.deductionAmount is number && data.deductionAmount >= 0 && data.deductionAmount <= 1000000 &&
+        data.earningsAmount is number && data.earningsAmount >= 0 && data.earningsAmount <= 1000000 &&
+        data.recordedBy is string && data.recordedBy.size() >= 1 && data.recordedBy.size() <= 128 &&
+        isValidTimestampField(data.createdAt) &&
+        isValidTimestampField(data.updatedAt) &&
+        isOptionalString(data, 'note', 1, 500) &&
+        isOptionalString(data, 'correctionReason', 1, 500) &&
+        isOptionalString(data, 'ownerId', 1, 128);
+    }
+
+    // ===============================================================
+    // Domain Validator: advanceRequests
+    // ===============================================================
+    function isValidAdvanceRequest(data) {
+      return data.keys().hasOnly([
+          'id', 'workerId', 'amount', 'category', 'reason',
+          'status', 'rejectionReason', 'reviewedBy', 'reviewedAt',
+          'ownerId', 'createdAt'
+        ]) &&
+        data.keys().hasAll(['id', 'workerId', 'amount', 'category', 'reason', 'status', 'createdAt']) &&
+        data.id is string && data.id.size() >= 1 && data.id.size() <= 128 &&
+        data.workerId is string && data.workerId.size() >= 1 && data.workerId.size() <= 128 &&
+        data.amount is number && data.amount > 0 && data.amount <= 1000000 &&
+        data.category is string && data.category in ['juice_shop', 'food', 'travel', 'medical', 'family', 'other'] &&
+        data.reason is string && data.reason.size() >= 1 && data.reason.size() <= 500 &&
+        data.status is string && data.status in ['pending', 'approved', 'rejected', 'paid'] &&
+        isValidTimestampField(data.createdAt) &&
+        isOptionalString(data, 'rejectionReason', 1, 500) &&
+        isOptionalString(data, 'reviewedBy', 1, 128) &&
+        isOptionalString(data, 'reviewedAt', 10, 40) &&
+        isOptionalString(data, 'ownerId', 1, 128);
+    }
+
+    // ===============================================================
+    // Domain Validator: disbursements
+    // ===============================================================
+    function isValidDisbursement(data) {
+      return data.keys().hasOnly([
+          'id', 'workerId', 'advanceRequestId', 'amount', 'disbursementDate',
+          'paymentMode', 'disbursementType', 'isRecoverable', 'isSettled',
+          'note', 'createdBy', 'ownerId', 'createdAt'
+        ]) &&
+        data.keys().hasAll([
+          'id', 'workerId', 'amount', 'disbursementDate', 'paymentMode',
+          'disbursementType', 'isRecoverable', 'isSettled', 'createdBy', 'createdAt'
+        ]) &&
+        data.id is string && data.id.size() >= 1 && data.id.size() <= 128 &&
+        data.workerId is string && data.workerId.size() >= 1 && data.workerId.size() <= 128 &&
+        data.amount is number && data.amount > 0 && data.amount <= 10000000 &&
+        data.disbursementDate is string && data.disbursementDate.size() >= 10 && data.disbursementDate.size() <= 40 &&
+        data.paymentMode is string && data.paymentMode in ['cash', 'upi', 'bank_transfer', 'cheque'] &&
+        data.disbursementType is string && data.disbursementType in ['advance', 'shop_debit', 'salary_installment', 'expense_reimbursement', 'non_recoverable'] &&
+        data.isRecoverable is bool &&
+        data.isSettled is bool &&
+        data.createdBy is string && data.createdBy.size() >= 1 && data.createdBy.size() <= 128 &&
+        isValidTimestampField(data.createdAt) &&
+        isOptionalString(data, 'advanceRequestId', 1, 128) &&
+        isOptionalString(data, 'note', 1, 500) &&
+        isOptionalString(data, 'ownerId', 1, 128);
+    }
+
+    // ===============================================================
+    // Domain Validator: deductions
+    // ===============================================================
+    function isValidDeduction(data) {
+      return data.keys().hasOnly([
+          'id', 'workerId', 'salaryPeriodId', 'disbursementId', 'category',
+          'amount', 'calculationBreakdown', 'reason', 'deductionDate',
+          'createdBy', 'ownerId', 'createdAt'
+        ]) &&
+        data.keys().hasAll([
+          'id', 'workerId', 'category', 'amount', 'calculationBreakdown',
+          'reason', 'deductionDate', 'createdBy', 'createdAt'
+        ]) &&
+        data.id is string && data.id.size() >= 1 && data.id.size() <= 128 &&
+        data.workerId is string && data.workerId.size() >= 1 && data.workerId.size() <= 128 &&
+        data.category is string && data.category in ['absence', 'shop_debit', 'advance_recovery', 'damage_recovery', 'loan_repayment', 'other'] &&
+        data.amount is number && data.amount > 0 && data.amount <= 10000000 &&
+        data.calculationBreakdown is string && data.calculationBreakdown.size() >= 1 && data.calculationBreakdown.size() <= 500 &&
+        data.reason is string && data.reason.size() >= 1 && data.reason.size() <= 500 &&
+        isValidDateString(data.deductionDate) &&
+        data.createdBy is string && data.createdBy.size() >= 1 && data.createdBy.size() <= 128 &&
+        isValidTimestampField(data.createdAt) &&
+        isOptionalString(data, 'salaryPeriodId', 1, 128) &&
+        isOptionalString(data, 'disbursementId', 1, 128) &&
+        isOptionalString(data, 'ownerId', 1, 128);
+    }
+
+    // ===============================================================
+    // Domain Validator: salaryPayments
+    // ===============================================================
+    function isValidSalaryPayment(data) {
+      return data.keys().hasOnly([
+          'id', 'salaryPeriodId', 'workerId', 'amount', 'paymentMode',
+          'referenceNumber', 'paymentDate', 'receiptNumber', 'note',
+          'createdBy', 'ownerId', 'createdAt'
+        ]) &&
+        data.keys().hasAll([
+          'id', 'salaryPeriodId', 'workerId', 'amount', 'paymentMode',
+          'paymentDate', 'receiptNumber', 'createdBy', 'createdAt'
+        ]) &&
+        data.id is string && data.id.size() >= 1 && data.id.size() <= 128 &&
+        data.salaryPeriodId is string && data.salaryPeriodId.size() >= 1 && data.salaryPeriodId.size() <= 128 &&
+        data.workerId is string && data.workerId.size() >= 1 && data.workerId.size() <= 128 &&
+        data.amount is number && data.amount > 0 && data.amount <= 50000000 &&
+        data.paymentMode is string && data.paymentMode in ['cash', 'upi', 'bank_transfer', 'cheque'] &&
+        data.paymentDate is string && data.paymentDate.size() >= 10 && data.paymentDate.size() <= 40 &&
+        data.receiptNumber is string && data.receiptNumber.size() >= 1 && data.receiptNumber.size() <= 100 &&
+        data.createdBy is string && data.createdBy.size() >= 1 && data.createdBy.size() <= 128 &&
+        isValidTimestampField(data.createdAt) &&
+        isOptionalString(data, 'referenceNumber', 1, 100) &&
+        isOptionalString(data, 'note', 1, 500) &&
+        isOptionalString(data, 'ownerId', 1, 128);
+    }
+
+    // ===============================================================
+    // Domain Validator: disputes
+    // ===============================================================
+    function isValidDispute(data) {
+      return data.keys().hasOnly([
+          'id', 'workerId', 'referenceType', 'referenceId', 'subject',
+          'description', 'status', 'ownerReply', 'resolvedAt',
+          'ownerId', 'createdAt'
+        ]) &&
+        data.keys().hasAll(['id', 'workerId', 'referenceType', 'subject', 'description', 'status', 'createdAt']) &&
+        data.id is string && data.id.size() >= 1 && data.id.size() <= 128 &&
+        data.workerId is string && data.workerId.size() >= 1 && data.workerId.size() <= 128 &&
+        data.referenceType is string && data.referenceType in ['attendance', 'deduction', 'advance', 'salary', 'shop_debit'] &&
+        data.subject is string && data.subject.size() >= 1 && data.subject.size() <= 200 &&
+        data.description is string && data.description.size() >= 1 && data.description.size() <= 2000 &&
+        data.status is string && data.status in ['open', 'resolved', 'dismissed'] &&
+        isValidTimestampField(data.createdAt) &&
+        isOptionalString(data, 'referenceId', 1, 128) &&
+        isOptionalString(data, 'ownerReply', 1, 2000) &&
+        isOptionalString(data, 'resolvedAt', 10, 40) &&
+        isOptionalString(data, 'ownerId', 1, 128);
+    }
+
+    // ===============================================================
+    // Domain Validator: backups
+    // ===============================================================
+    function isValidBackup(data) {
+      return data.keys().hasOnly(['id', 'ownerId', 'createdAt', 'note', 'appVersion', 'stats', 'data']) &&
+        data.keys().hasAll(['id', 'ownerId', 'createdAt', 'appVersion', 'stats', 'data']) &&
+        data.id is string && data.id.size() >= 1 && data.id.size() <= 128 &&
+        data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 &&
+        isValidTimestampField(data.createdAt) &&
+        data.appVersion is string && data.appVersion.size() >= 1 && data.appVersion.size() <= 50 &&
+        data.stats is map &&
+        data.data is map &&
+        isOptionalString(data, 'note', 1, 500);
+    }
+
+    // ===============================================================
+    // Domain Validator: notifications
+    // ===============================================================
+    function isValidNotification(data) {
+      return data.keys().hasOnly(['id', 'userId', 'title', 'body', 'type', 'payload', 'isRead', 'createdAt']) &&
+        data.keys().hasAll(['id', 'userId', 'title', 'body', 'type', 'isRead', 'createdAt']) &&
+        data.id is string && data.id.size() >= 1 && data.id.size() <= 128 &&
+        data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 200 &&
+        data.body is string && data.body.size() >= 1 && data.body.size() <= 1000 &&
+        data.type is string && data.type.size() >= 1 && data.type.size() <= 50 &&
+        data.isRead is bool &&
+        isValidTimestampField(data.createdAt) &&
+        (!( 'payload' in data ) || data.payload is map);
+    }
+
+    // ===============================================================
+    // COLLECTION RULES
+    // ===============================================================
+
+    // 1. User Profiles
+    // Owners can read/write their own profile and read workers' profiles.
+    // Workers can read/write their own profile.
+    match /profiles/{userId} {
+      allow read: if isAuthenticated() && (
+        request.auth.uid == userId ||
+        (isAppOwner() && resource.data.get('role', '') == 'worker')
+      );
+
+      allow create: if isOwner(userId) &&
+        isValidProfile(request.resource.data) &&
+        request.resource.data.id == userId &&
+        request.resource.data.role in ['owner', 'worker'];
+
+      allow update: if isOwner(userId) &&
+        isValidProfile(request.resource.data) &&
+        request.resource.data.id == resource.data.id &&
+        request.resource.data.role == resource.data.role &&
+        request.resource.data.createdAt == resource.data.createdAt;
+
+      allow delete: if isOwner(userId);
+    }
+
+    // 2. Workers
+    // Managed by business owner. Owner has full CRUD.
+    // Linked worker has read-only access to their own worker profile.
+    match /workers/{workerId} {
+      allow read: if isAuthenticated() && (
+        isOwner(resource.data.ownerId) ||
+        resource.data.get('userId', '') == request.auth.uid
+      );
+
+      allow create: if isAuthenticated() &&
+        isOwner(request.resource.data.ownerId) &&
+        isValidWorker(request.resource.data) &&
+        request.resource.data.id == workerId;
+
+      allow update: if isAuthenticated() &&
+        isOwner(resource.data.ownerId) &&
+        isValidWorker(request.resource.data) &&
+        request.resource.data.id == resource.data.id &&
+        request.resource.data.ownerId == resource.data.ownerId &&
+        request.resource.data.createdAt == resource.data.createdAt;
+
+      allow delete: if isAuthenticated() &&
+        isOwner(resource.data.ownerId);
+    }
+
+    // 3. Attendance Records
+    // Owner has full CRUD. Worker can read records matching their worker profile.
+    match /attendance/{attendanceId} {
+      allow read: if isAuthenticated() && (
+        isWorkerOwner(resource.data.workerId) ||
+        resource.data.recordedBy == request.auth.uid ||
+        resource.data.get('ownerId', '') == request.auth.uid ||
+        isLinkedWorker(resource.data.workerId)
+      );
+
+      allow create: if isAuthenticated() &&
+        (isWorkerOwner(request.resource.data.workerId) || request.resource.data.recordedBy == request.auth.uid) &&
+        isValidAttendance(request.resource.data) &&
+        request.resource.data.id == attendanceId;
+
+      allow update: if isAuthenticated() &&
+        (isWorkerOwner(resource.data.workerId) || resource.data.recordedBy == request.auth.uid) &&
+        isValidAttendance(request.resource.data) &&
+        request.resource.data.id == resource.data.id &&
+        request.resource.data.workerId == resource.data.workerId &&
+        request.resource.data.createdAt == resource.data.createdAt;
+
+      allow delete: if isAuthenticated() &&
+        (isWorkerOwner(resource.data.workerId) || resource.data.recordedBy == request.auth.uid);
+    }
+
+    // 4. Advance Requests
+    // Worker can create requests (matching their profile) and read their own.
+    // Owner can read and update status (approved, rejected, paid).
+    match /advanceRequests/{requestId} {
+      allow read: if isAuthenticated() && (
+        isLinkedWorker(resource.data.workerId) ||
+        isWorkerOwner(resource.data.workerId)
+      );
+
+      allow create: if isAuthenticated() &&
+        isLinkedWorker(request.resource.data.workerId) &&
+        request.resource.data.status == 'pending' &&
+        isValidAdvanceRequest(request.resource.data) &&
+        request.resource.data.id == requestId;
+
+      allow update: if isAuthenticated() &&
+        isWorkerOwner(resource.data.workerId) &&
+        isValidAdvanceRequest(request.resource.data) &&
+        request.resource.data.id == resource.data.id &&
+        request.resource.data.workerId == resource.data.workerId &&
+        request.resource.data.amount == resource.data.amount &&
+        request.resource.data.category == resource.data.category &&
+        request.resource.data.reason == resource.data.reason &&
+        request.resource.data.createdAt == resource.data.createdAt;
+
+      allow delete: if isAuthenticated() &&
+        isWorkerOwner(resource.data.workerId);
+    }
+
+    // 5. Disbursements
+    // Cash advances and disbursements. Owner has full CRUD. Worker can read disbursements given to them.
+    match /disbursements/{disbursementId} {
+      allow read: if isAuthenticated() && (
+        isWorkerOwner(resource.data.workerId) ||
+        resource.data.createdBy == request.auth.uid ||
+        resource.data.get('ownerId', '') == request.auth.uid ||
+        isLinkedWorker(resource.data.workerId)
+      );
+
+      allow create: if isAuthenticated() &&
+        (isWorkerOwner(request.resource.data.workerId) || request.resource.data.createdBy == request.auth.uid) &&
+        isValidDisbursement(request.resource.data) &&
+        request.resource.data.id == disbursementId;
+
+      allow update: if isAuthenticated() &&
+        (isWorkerOwner(resource.data.workerId) || resource.data.createdBy == request.auth.uid) &&
+        isValidDisbursement(request.resource.data) &&
+        request.resource.data.id == resource.data.id &&
+        request.resource.data.workerId == resource.data.workerId &&
+        request.resource.data.createdAt == resource.data.createdAt;
+
+      allow delete: if isAuthenticated() &&
+        (isWorkerOwner(resource.data.workerId) || resource.data.createdBy == request.auth.uid);
+    }
+
+    // 6. Deductions
+    // Salary deductions (absence, juice/shop debits, advance recovery).
+    // Owner has full CRUD. Worker can read their deductions.
+    match /deductions/{deductionId} {
+      allow read: if isAuthenticated() && (
+        isWorkerOwner(resource.data.workerId) ||
+        resource.data.createdBy == request.auth.uid ||
+        resource.data.get('ownerId', '') == request.auth.uid ||
+        isLinkedWorker(resource.data.workerId)
+      );
+
+      allow create: if isAuthenticated() &&
+        (isWorkerOwner(request.resource.data.workerId) || request.resource.data.createdBy == request.auth.uid) &&
+        isValidDeduction(request.resource.data) &&
+        request.resource.data.id == deductionId;
+
+      allow update: if isAuthenticated() &&
+        (isWorkerOwner(resource.data.workerId) || resource.data.createdBy == request.auth.uid) &&
+        isValidDeduction(request.resource.data) &&
+        request.resource.data.id == resource.data.id &&
+        request.resource.data.workerId == resource.data.workerId &&
+        request.resource.data.createdAt == resource.data.createdAt;
+
+      allow delete: if isAuthenticated() &&
+        (isWorkerOwner(resource.data.workerId) || resource.data.createdBy == request.auth.uid);
+    }
+
+    // 7. Salary Payments
+    // Salary installments and settlements. Owner has full CRUD. Worker can read their own payment receipts.
+    match /salaryPayments/{paymentId} {
+      allow read: if isAuthenticated() && (
+        isWorkerOwner(resource.data.workerId) ||
+        resource.data.createdBy == request.auth.uid ||
+        resource.data.get('ownerId', '') == request.auth.uid ||
+        isLinkedWorker(resource.data.workerId)
+      );
+
+      allow create: if isAuthenticated() &&
+        (isWorkerOwner(request.resource.data.workerId) || request.resource.data.createdBy == request.auth.uid) &&
+        isValidSalaryPayment(request.resource.data) &&
+        request.resource.data.id == paymentId;
+
+      allow update: if isAuthenticated() &&
+        (isWorkerOwner(resource.data.workerId) || resource.data.createdBy == request.auth.uid) &&
+        isValidSalaryPayment(request.resource.data) &&
+        request.resource.data.id == resource.data.id &&
+        request.resource.data.workerId == resource.data.workerId &&
+        request.resource.data.createdAt == resource.data.createdAt;
+
+      allow delete: if isAuthenticated() &&
+        (isWorkerOwner(resource.data.workerId) || resource.data.createdBy == request.auth.uid);
+    }
+
+    // 8. Disputes
+    // Clarification and dispute requests.
+    // Worker can create and read their disputes. Owner can read and update resolution.
+    match /disputes/{disputeId} {
+      allow read: if isAuthenticated() && (
+        isLinkedWorker(resource.data.workerId) ||
+        isWorkerOwner(resource.data.workerId)
+      );
+
+      allow create: if isAuthenticated() &&
+        isLinkedWorker(request.resource.data.workerId) &&
+        request.resource.data.status == 'open' &&
+        isValidDispute(request.resource.data) &&
+        request.resource.data.id == disputeId;
+
+      allow update: if isAuthenticated() &&
+        isWorkerOwner(resource.data.workerId) &&
+        isValidDispute(request.resource.data) &&
+        request.resource.data.id == resource.data.id &&
+        request.resource.data.workerId == resource.data.workerId &&
+        request.resource.data.referenceType == resource.data.referenceType &&
+        request.resource.data.subject == resource.data.subject &&
+        request.resource.data.description == resource.data.description &&
+        request.resource.data.createdAt == resource.data.createdAt;
+
+      allow delete: if isAuthenticated() &&
+        isWorkerOwner(resource.data.workerId);
+    }
+
+    // 9. Backups
+    // Full database backups. Owner only (request.auth.uid == resource.data.ownerId).
+    match /backups/{backupId} {
+      allow read: if isAuthenticated() &&
+        isOwner(resource.data.ownerId);
+
+      allow create: if isAuthenticated() &&
+        isOwner(request.resource.data.ownerId) &&
+        isValidBackup(request.resource.data) &&
+        request.resource.data.id == backupId;
+
+      allow update: if isAuthenticated() &&
+        isOwner(resource.data.ownerId) &&
+        isValidBackup(request.resource.data) &&
+        request.resource.data.id == resource.data.id &&
+        request.resource.data.ownerId == resource.data.ownerId &&
+        request.resource.data.createdAt == resource.data.createdAt;
+
+      allow delete: if isAuthenticated() &&
+        isOwner(resource.data.ownerId);
+    }
+
+    // 10. Notifications
+    // App notifications for owners and workers
+    match /notifications/{notificationId} {
+      allow read: if isAuthenticated() &&
+        resource.data.userId == request.auth.uid;
+
+      allow create: if isAuthenticated() &&
+        isValidNotification(request.resource.data) &&
+        request.resource.data.id == notificationId;
+
+      allow update: if isAuthenticated() &&
+        resource.data.userId == request.auth.uid &&
+        isValidNotification(request.resource.data) &&
+        request.resource.data.id == resource.data.id &&
+        request.resource.data.userId == resource.data.userId &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead']);
+
+      allow delete: if isAuthenticated() &&
+        resource.data.userId == request.auth.uid;
+    }
+
+    // Default deny for all other paths
+    match /{document=**} {
+      allow read, write: false;
+    }
+  }
+}
